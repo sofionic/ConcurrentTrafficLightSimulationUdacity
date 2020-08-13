@@ -2,6 +2,7 @@
 #include <random>
 #include "TrafficLight.h"
 #include <chrono>
+#include <future>
 
 /* Implementation of class "MessageQueue" */
 
@@ -16,8 +17,8 @@ TrafficLightPhase MessageQueue<T>::receive()
         _condition.wait(uLock, [this] { return !_queue.empty(); }); // pass unique lock to condition variable
 
         // remove last vector element from queue
-        TrafficLightPhase msg = std::move(_queue.back());
-        _queue.pop_back();
+        TrafficLightPhase msg = std::move(_queue.front());
+        _queue.pop_front();
 
         return msg; //
 }
@@ -27,7 +28,7 @@ void MessageQueue<T>::send(TrafficLightPhase &&msg)
 {
     // FP.4a : The method send should use the mechanisms std::lock_guard<std::mutex> 
     // as well as _condition.notify_one() to add a new message to the queue and afterwards send a notification.
-    std::lock_guard<std::mutex> uLock(_mutex);
+    const std::lock_guard<std::mutex> uLock(_mutex);
     _queue.push_back(std::move(msg));
     _condition.notify_one();
 }
@@ -75,27 +76,32 @@ void TrafficLight::cycleThroughPhases()
     // and toggles the current phase of the traffic light between red and green and sends an update method 
     // to the message queue using move semantics. The cycle duration should be a random value between 4 and 6 seconds. 
     // Also, the while-loop should use std::this_thread::sleep_for to wait 1ms between two cycles. 
-    auto t_0 = std::chrono::high_resolution_clock::now();
+    std::random_device ran_dev;
+    std::mt19937 gen(ran_dev());
+    std::uniform_int_distribution<> distr(4000, 6000);
+
     while (true)
     {
+        auto startTime = std::chrono::system_clock::now();
+        std::this_thread::sleep_for(std::chrono::milliseconds(distr(gen)));
+        if (_currentPhase == TrafficLightPhase::red)
+        {
+            _currentPhase = TrafficLightPhase::green;
+        }
+        else
+        {
+            _currentPhase = TrafficLightPhase::red;
+        }
+        auto endTime = std::chrono::system_clock::now();
+        std::chrono::duration<double, std::milli> elapsedTime = endTime - startTime;
+        auto msg = _currentPhase;
+        auto is_sent = std::async(std::launch::async, 
+                                  &MessageQueue<TrafficLightPhase>::send, 
+                                  &_messageQueue, 
+                                  std::move(msg));
+        is_sent.wait();
+
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      
-        std::random_device rd;
-        std::mt19937 gen(rd());
-        std::uniform_int_distribution<> distr(4000, 6000);
-      
-      std::this_thread::sleep_for(std::chrono::milliseconds(distr(gen)));
-      
-      if (_currentPhase == TrafficLightPhase::red)
-      {
-          _currentPhase == TrafficLightPhase::green;
-      }
-      else 
-      {
-          _currentPhase == TrafficLightPhase::red;
-      }
-      
-      _messageQueue.send(std::move(_currentPhase));
     } 
 }
 
